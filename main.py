@@ -4,6 +4,8 @@ from pypdf.errors import PdfReadError
 
 app = FastAPI(title="PDF assistant")
 
+documents = {}
+
 
 def validate_pdf(file: UploadFile) -> PdfReader:
     """Open an uploaded PDF, rejecting encrypted, zero-page, or unreadable files."""
@@ -46,6 +48,18 @@ async def upload_file(file: UploadFile = File(...)):
         )
 
     reader = validate_pdf(file)
+
+    pages = []
+    
+    for page_number, page in enumerate(reader.pages, start=1):
+        pages.append({"page_number": page_number, "content": page.extract_text() or ""})
+
+    document_id = str(uuid4())
+
+    documents[document_id] = {
+    "filename": file.filename,
+    "pages": pages
+}
 
     return {"filename": file.filename, "content_type": file.content_type, "page_count": len(reader.pages)}
 
