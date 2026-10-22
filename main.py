@@ -15,6 +15,7 @@ from retrieval import search_chunks
 class SearchRequest(BaseModel):
     question: str
 
+
 app = FastAPI(title="PDF assistant")
 
 # In-memory storage: restarting the server clears all uploaded document data.
@@ -100,23 +101,23 @@ async def upload_file(file: UploadFile = File(...)):
     # This references the same dictionary stored under document_id; it is not a copy.
     document = documents[document_id]
     chunks = []
-  
 
     # Here page is one of our dictionaries, rather than a pypdf PageObject.
     # Chunk each page separately so every chunk has an unambiguous page number.
     for page in document["pages"]:
         for text in chunk_text(page["content"]):
-            chunks.append({
-            # Keep the source ID if chunks are later collected into a separate list.
-            "document_id": document_id,
-            "page_number": page["page_number"],
-            "chunk_id": str(uuid4()),
-            "content": text
-        })
+            chunks.append(
+                {
+                    # Keep the source ID if chunks are later collected into a separate list.
+                    "document_id": document_id,
+                    "page_number": page["page_number"],
+                    "chunk_id": str(uuid4()),
+                    "content": text,
+                }
+            )
 
     # Attach the list to this specific document, not to the outer documents dictionary.
     documents[document_id]["chunks"] = chunks
-
 
     return {
         "filename": file.filename,
@@ -141,7 +142,6 @@ def get_document(document_id: str):
     """
     document = documents.get(document_id)
     # dict.get returns None for an unknown ID rather than raising KeyError.
-
 
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -182,15 +182,15 @@ def chunk_text(
             chunks.append(chunk)
 
         # Once a slice reaches the end, avoid another slice of only repeated text.
-        if start + chunk_size >=len(text):
-            break   
-    
+        if start + chunk_size >= len(text):
+            break
 
     return chunks
 
+
 @app.post("/documents/{document_id}/search")
 def search_document(document_id: str, body: SearchRequest):
-    """Score this document's chunks against a nonblank question."""
+    """Score this document's chunks against a non blank question."""
     document = documents.get(document_id)
 
     if document is None:
@@ -202,14 +202,4 @@ def search_document(document_id: str, body: SearchRequest):
 
     results = search_chunks(document["chunks"], question)
 
-    return {
-        "document_id": document_id,
-        "question": question,
-        "results": results
-    }
-
-
-
-
-
-
+    return {"document_id": document_id, "question": question, "results": results}
