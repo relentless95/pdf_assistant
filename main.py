@@ -9,6 +9,7 @@ from pypdf.errors import PdfReadError
 from uuid import uuid4
 from retrieval import score_chunks
 from pydantic import BaseModel
+from retrieval import search_chunks
 
 
 class SearchRequest(BaseModel):
@@ -199,10 +200,13 @@ def search_document(document_id: str, body: SearchRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    scores = score_chunks(document["chunks"], question)
+    results = search_chunks(document["chunks"], question)
 
-    return {"scores": scores.tolist()}
-
+    return {
+        "document_id": document_id,
+        "question": question,
+        "results": results
+    }
 
 
 
