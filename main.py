@@ -5,6 +5,7 @@ from uuid import uuid4
 
 app = FastAPI(title="PDF assistant")
 
+# In-memory storage: restarting the server clears all uploaded document data.
 documents = {}
 
 
@@ -42,7 +43,7 @@ def health():
 
 @app.post("/files/")
 async def upload_file(file: UploadFile = File(...)):
-    """Check upload size and PDF readability, then return file metadata."""
+    """Validate a PDF, extract numbered pages, store them, and return an ID and preview."""
     max_size = 10 * 1024 * 1024  # 10 MiB in bytes
 
     # This checks an already received upload before PDF parsing.
@@ -55,23 +56,28 @@ async def upload_file(file: UploadFile = File(...)):
 
     pages = []
     try:
+        # enumerate supplies human-facing page numbers; page is a pypdf page object.
         for page_number, page in enumerate(reader.pages, start=1):
             pages.append({"page_number": page_number, "content": page.extract_text() or ""})
     except PdfReadError:
+        # Opening the PDF can succeed even if a page fails during extraction.
         raise HTTPException(
             status_code=400,
             detail="The PDF is damaged and its text could not be read."
         )
 
 
+    # Blank pages are allowed, but at least one page must contain actual text.
     if not any(page["content"].strip() for page in pages):
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail="The PDF has no extractable text. Scanned PDFs require OCR."
         )
 
+    # Use an independent ID so uploads with identical filenames stay separate.
     document_id = str(uuid4())
 
+    # Store only after validation/extraction succeed; the original PDF is not saved.
     documents[document_id] = {
     "filename": file.filename,
     "pages": pages
@@ -92,6 +98,7 @@ async def upload_file(file: UploadFile = File(...)):
 def get_document(document_id: str):
     """Retrieve a document by its ID."""
     document = documents.get(document_id)
+    # dict.get returns None for an unknown ID rather than raising KeyError.
 
     if document is None:
         raise HTTPException(
