@@ -23,16 +23,10 @@ def validate_pdf(file: UploadFile) -> PdfReader:
         if len(reader.pages) == 0:
             raise HTTPException(status_code=400, detail="The PDF has no page")
 
-
-
     except PdfReadError:
         raise HTTPException(status_code=400, detail="Invalid PDF file")
 
-    
     return reader
-
-
-
 
 
 @app.get("/health")
@@ -58,41 +52,39 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         # enumerate supplies human-facing page numbers; page is a pypdf page object.
         for page_number, page in enumerate(reader.pages, start=1):
-            pages.append({"page_number": page_number, "content": page.extract_text() or ""})
+            pages.append(
+                {"page_number": page_number, "content": page.extract_text() or ""}
+            )
     except PdfReadError:
         # Opening the PDF can succeed even if a page fails during extraction.
         raise HTTPException(
-            status_code=400,
-            detail="The PDF is damaged and its text could not be read."
+            status_code=400, detail="The PDF is damaged and its text could not be read."
         )
-
 
     # Blank pages are allowed, but at least one page must contain actual text.
     if not any(page["content"].strip() for page in pages):
         raise HTTPException(
             status_code=400,
-            detail="The PDF has no extractable text. Scanned PDFs require OCR."
+            detail="The PDF has no extractable text. Scanned PDFs require OCR.",
         )
 
     # Use an independent ID so uploads with identical filenames stay separate.
     document_id = str(uuid4())
 
     # Store only after validation/extraction succeed; the original PDF is not saved.
-    documents[document_id] = {
-    "filename": file.filename,
-    "pages": pages
-}
+    documents[document_id] = {"filename": file.filename, "pages": pages}
 
     return {
         "filename": file.filename,
         "content_type": file.content_type,
         "page_count": len(pages),
         "document_id": document_id,
-        "preview": next(
-            page["content"] for page in pages if page["content"].strip()
-        )[:200],
-        "message": "File uploaded and processed successfully"
+        "preview": next(page["content"] for page in pages if page["content"].strip())[
+            :200
+        ],
+        "message": "File uploaded and processed successfully",
     }
+
 
 @app.get("/documents/{document_id}")
 def get_document(document_id: str):
@@ -101,13 +93,36 @@ def get_document(document_id: str):
     # dict.get returns None for an unknown ID rather than raising KeyError.
 
     if document is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Document not found"
-        )
+        raise HTTPException(status_code=404, detail="Document not found")
 
     return {
         "document_id": document_id,
         "filename": document["filename"],
-        "pages": document["pages"]
+        "pages": document["pages"],
     }
+
+
+def chunk_text(
+    text: str, chunk_size: int = 1000, chunk_overlap: int = 200
+) -> list[str]:
+    """Split text intokl overlapping character-based chunks."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be a positive integer")
+
+    if not 0 <= chunk_overlap < chunk_size:
+        raise ValueError("chunk_overlap must be non-negative and less than chunk_size")
+
+    chunks = []
+    step = chunk_size - chunk_overlap
+
+    for start in range(0, len(text), step):
+        chunk = text[start : start + chunk_size].strip()
+
+        if chunk:
+            chunks.append(chunk)
+
+        if start + chunk_size >=len(text):
+            break   
+    
+
+    return chunks
