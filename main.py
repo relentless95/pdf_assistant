@@ -4,12 +4,12 @@ Document data lives in memory; original PDF files are not permanently saved.
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 from uuid import uuid4
-from retrieval import score_chunks
 from pydantic import BaseModel
 from retrieval import search_chunks
+from extraction import extract_pages, validate_pdf
+from chunking import chunk_text
 
 
 class SearchRequest(BaseModel):
@@ -21,30 +21,6 @@ app = FastAPI(title="PDF assistant")
 # In-memory storage: restarting the server clears all uploaded document data.
 # Structure: {document_id: {"filename": ..., "pages": [...], "chunks": [...]}}
 documents = {}
-
-
-def validate_pdf(file: UploadFile) -> PdfReader:
-    """Return a PdfReader for an acceptable upload, or raise an HTTP 400 error.
-
-    UploadFile wraps the upload; file.file is its underlying readable file object.
-    This checks PDF structure, not whether its pages contain extractable text.
-    """
-    try:
-        # Give pypdf the readable file object contained in UploadFile.
-        reader = PdfReader(file.file)
-
-        if reader.is_encrypted:
-            raise HTTPException(
-                status_code=400, detail="Encrypted PDF files are not allowed"
-            )
-
-        if len(reader.pages) == 0:
-            raise HTTPException(status_code=400, detail="The PDF has no page")
-
-    except PdfReadError:
-        raise HTTPException(status_code=400, detail="Invalid PDF file")
-
-    return reader
 
 
 @app.get("/health")
@@ -70,20 +46,7 @@ async def upload_file(file: UploadFile = File(...)):
 
     reader = validate_pdf(file)
 
-    pages = []
-    try:
-        # enumerate supplies human-facing page numbers; page is a pypdf page object.
-        for page_number, page in enumerate(reader.pages, start=1):
-            # Keep the page number beside the text for later source references.
-            # If extraction returns None, store an empty string instead.
-            pages.append(
-                {"page_number": page_number, "content": page.extract_text() or ""}
-            )
-    except PdfReadError:
-        # Opening the PDF can succeed even if a page fails during extraction.
-        raise HTTPException(
-            status_code=400, detail="The PDF is damaged and its text could not be read."
-        )
+    pages = extract_pages(reader)
 
     # Blank pages are allowed, but at least one page must contain actual text.
     if not any(page["content"].strip() for page in pages):
@@ -152,40 +115,6 @@ def get_document(document_id: str):
         "pages": document["pages"],
     }
 
-
-def chunk_text(
-    text: str, chunk_size: int = 1000, chunk_overlap: int = 200
-) -> list[str]:
-    """Return nonblank text slices, with sizes measured in characters.
-
-    Defaults: up to 1,000 characters per slice, with 200 characters of overlap
-    before stripping edge whitespace. Overlap repeats boundary context between
-    neighboring slices. Return an empty list for empty or whitespace-only text.
-    Raise ValueError for a nonpositive size or overlap outside [0, chunk_size).
-    """
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be a positive integer")
-
-    # Chained comparison: overlap must be >= 0 AND < chunk_size.
-    if not 0 <= chunk_overlap < chunk_size:
-        raise ValueError("chunk_overlap must be non-negative and less than chunk_size")
-
-    chunks = []
-    step = chunk_size - chunk_overlap
-
-    # With the defaults, starting positions are 0, 800, 1600, and so on.
-    for start in range(0, len(text), step):
-        # Slicing includes start and excludes the end; strip removes edge whitespace.
-        chunk = text[start : start + chunk_size].strip()
-
-        if chunk:
-            chunks.append(chunk)
-
-        # Once a slice reaches the end, avoid another slice of only repeated text.
-        if start + chunk_size >= len(text):
-            break
-
-    return chunks
 
 
 @app.post("/documents/{document_id}/search")
