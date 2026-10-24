@@ -6,3 +6,5 @@ __pycache__/
 !.env.example
 /LEARNING_ROADMAP.md
 /tmp/
+/data/
+/AGENTS.md
