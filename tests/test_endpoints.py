@@ -3,8 +3,19 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from main import app
+import storage
 
 client = TestClient(app)
+
+
+def upload_sample():
+    """Upload the known PDF and return its ID for database endpoint tests."""
+    with (Path(__file__).parent / "sample.pdf").open("rb") as pdf:
+        response = client.post(
+            "/files/", files={"file": ("sample.pdf", pdf, "application/pdf")}
+        )
+    assert response.status_code == 200
+    return response.json()["document_id"]
 
 
 def test_health():
@@ -80,3 +91,45 @@ def test_search_uploaded_document():
     # Compare the returned order with a new list sorted highest-score-first.
     scores = [result["score"] for result in results]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_saved_document_can_be_listed_and_retrieved():
+    """Check SQLite-backed list and GET responses after an upload."""
+    document_id = upload_sample()
+
+    listing = client.get("/documents/")
+    assert listing.status_code == 200
+    assert listing.json()["documents"] == [
+        {"document_id": document_id, "filename": "sample.pdf"}
+    ]
+
+    response = client.get(f"/documents/{document_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["document_id"] == document_id
+    assert data["pages"][0]["page_number"] == 1
+    assert "Batteries store energy" in data["pages"][0]["content"]
+
+
+def test_delete_document_removes_related_data():
+    """Delete through the API and verify pages/chunks are removed by SQLite."""
+    document_id = upload_sample()
+
+    # Confirm related data existed, so empty tables afterward prove deletion.
+    saved = storage.load_document(document_id)
+    assert saved["pages"] and saved["chunks"]
+
+    response = client.delete(f"/documents/{document_id}")
+    assert response.status_code == 204
+    assert response.content == b""
+    assert client.get(f"/documents/{document_id}").status_code == 404
+    assert client.get("/documents/").json() == {"documents": []}
+
+    connection = storage.get_connection()
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM pages").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    assert client.delete(f"/documents/{document_id}").status_code == 404

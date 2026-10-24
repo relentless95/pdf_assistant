@@ -1,6 +1,7 @@
 """Learning API: upload PDFs, extract numbered pages, and build searchable chunks.
 
-Document data lives in memory; original PDF files are not permanently saved.
+Document metadata, extracted pages, and chunks persist in SQLite.
+Original PDF files are not permanently saved. Run storage.py to create tables.
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -10,17 +11,21 @@ from pydantic import BaseModel
 from retrieval import search_chunks
 from extraction import extract_pages, validate_pdf
 from chunking import chunk_text
+from storage import save_document
+from storage import list_documents
+from storage import load_document, delete_document
+
 
 
 class SearchRequest(BaseModel):
+    """Expected search JSON; the endpoint separately rejects blank questions."""
     question: str
 
 
 app = FastAPI(title="PDF assistant")
 
-# In-memory storage: restarting the server clears all uploaded document data.
-# Structure: {document_id: {"filename": ..., "pages": [...], "chunks": [...]}}
-documents = {}
+# Storage functions read and write SQLite; no global document cache is needed.
+
 
 
 @app.get("/health")
@@ -31,7 +36,7 @@ def health():
 
 @app.post("/files/")
 async def upload_file(file: UploadFile = File(...)):
-    """Validate, extract, chunk, and store one uploaded PDF in memory.
+    """Validate, extract, chunk, and save one uploaded PDF's data in SQLite.
 
     File(...) declares a required upload. Return its generated ID, metadata, and
     a short preview. Reject oversized files with 413 and unsupported PDFs with 400.
@@ -58,16 +63,14 @@ async def upload_file(file: UploadFile = File(...)):
     # Use an independent ID so uploads with identical filenames stay separate.
     document_id = str(uuid4())
 
-    # Store only after validation/extraction succeed; the original PDF is not saved.
-    documents[document_id] = {"filename": file.filename, "pages": pages}
 
-    # This references the same dictionary stored under document_id; it is not a copy.
-    document = documents[document_id]
+
+    # Build chunks locally, then save document, pages, and chunks together.
     chunks = []
 
     # Here page is one of our dictionaries, rather than a pypdf PageObject.
     # Chunk each page separately so every chunk has an unambiguous page number.
-    for page in document["pages"]:
+    for page in pages:
         for text in chunk_text(page["content"]):
             chunks.append(
                 {
@@ -79,8 +82,14 @@ async def upload_file(file: UploadFile = File(...)):
                 }
             )
 
-    # Attach the list to this specific document, not to the outer documents dictionary.
-    documents[document_id]["chunks"] = chunks
+
+    # Commit the processed data before reporting a successful upload.
+    save_document(
+    document_id=document_id,
+    filename=file.filename or "unnamed.pdf",
+    pages=pages,
+    chunks=chunks
+)
 
     return {
         "filename": file.filename,
@@ -103,8 +112,9 @@ def get_document(document_id: str):
     document_id comes from the URL path. This retrieves extracted data without
     reopening the PDF; stored chunks are currently omitted from the response.
     """
-    document = documents.get(document_id)
-    # dict.get returns None for an unknown ID rather than raising KeyError.
+    
+    document = load_document(document_id)
+    # load_document returns a dictionary built from database rows, or None.
 
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -119,8 +129,8 @@ def get_document(document_id: str):
 
 @app.post("/documents/{document_id}/search")
 def search_document(document_id: str, body: SearchRequest):
-    """Score this document's chunks against a non blank question."""
-    document = documents.get(document_id)
+    """Load saved chunks and return up to three ranked matches for a question."""
+    document = load_document(document_id)
 
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -132,3 +142,17 @@ def search_document(document_id: str, body: SearchRequest):
     results = search_chunks(document["chunks"], question)
 
     return {"document_id": document_id, "question": question, "results": results}
+
+@app.get("/documents/")
+def get_all_documents():
+    """List saved documents without their full pages or chunks."""
+    return {"documents": list_documents()}
+
+
+@app.delete("/documents/{document_id}", status_code=204)
+def remove_document(document_id: str):
+    """Delete document data via foreign-key cascades; return 204 or 404."""
+    deleted = delete_document(document_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")

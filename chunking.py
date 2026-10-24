@@ -1,4 +1,4 @@
-
+"""Split page text into overlapping character-based passages for retrieval."""
 
 def chunk_text(
     text: str, chunk_size: int = 1000, chunk_overlap: int = 200

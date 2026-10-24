@@ -1,13 +1,14 @@
-"""Shared setup and cleanup automatically discovered by pytest."""
+"""Isolate tests from one another and from the real document database."""
 
 import pytest
 
-from main import documents
+import storage
 
 
 @pytest.fixture(autouse=True)
-def clear_document_storage():
-    """Give each test empty storage and remove its uploads afterward."""
-    documents.clear()
-    yield  # Pytest runs the test here, then resumes cleanup below.
-    documents.clear()
+def temporary_database(tmp_path, monkeypatch):
+    """Use a fresh SQLite file per test; pytest restores the path afterward."""
+    # tmp_path is a pytest-managed temporary folder, not the project's data folder.
+    monkeypatch.setattr(storage, "DATABASE_PATH", tmp_path / "documents.db")
+    storage.initialize_database()
+    yield

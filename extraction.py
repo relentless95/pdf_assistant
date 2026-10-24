@@ -1,3 +1,5 @@
+"""Validate PDF structure and extract numbered text pages without saving files."""
+
 from fastapi import UploadFile, HTTPException
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
