@@ -1,4 +1,4 @@
-from embeddings import embed_passages, embed_question
+from backend.embeddings import embed_passages, embed_question
 from sklearn.metrics.pairwise import cosine_similarity
 
 

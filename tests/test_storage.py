@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-import storage
+from backend import storage
 
 
 def test_document_survives_a_new_process():
@@ -20,8 +20,8 @@ def test_document_survives_a_new_process():
     code = """
 import sys
 from pathlib import Path
-import storage
-from retrieval import search_chunks
+from backend import storage
+from backend.retrieval import search_chunks
 storage.DATABASE_PATH = Path(sys.argv[1])
 document = storage.load_document('persistent-id')
 assert document['filename'] == 'sample.pdf'

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "google/gemini-3.1-flash-lite"
 
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).parent / ".env",
+        env_file=Path(__file__).resolve().parents[1] / ".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )

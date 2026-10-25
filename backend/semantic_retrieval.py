@@ -3,7 +3,7 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from embeddings import MODEL_NAME, embed_passages, embed_question
+from backend.embeddings import MODEL_NAME, embed_passages, embed_question
 
 
 def add_embeddings(chunks: list[dict]) -> None:

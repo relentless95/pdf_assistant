@@ -5,7 +5,7 @@ import json
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from config import get_settings
+from backend.config import get_settings
 
 
 class AnsweringError(Exception):

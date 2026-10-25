@@ -1,4 +1,4 @@
-from retrieval import search_chunks
+from backend.retrieval import search_chunks
 
 
 def test_search_chunks_ranks_relevant_passages_first():

@@ -1,28 +1,28 @@
 """Learning API: upload PDFs, extract numbered pages, and build searchable chunks.
 
 Document metadata, extracted pages, and chunks persist in SQLite.
-Original PDF files are not permanently saved. Run storage.py to create tables.
+Original PDF files are not permanently saved. Run python -m backend.storage to create tables.
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pypdf.errors import PdfReadError
 from uuid import uuid4
 from pydantic import BaseModel
-from retrieval import search_chunks
-from extraction import extract_pages, validate_pdf
-from chunking import chunk_text
-from storage import save_document
-from storage import list_documents
-from storage import load_document, delete_document
+from backend.retrieval import search_chunks
+from backend.extraction import extract_pages, validate_pdf
+from backend.chunking import chunk_text
+from backend.storage import save_document
+from backend.storage import list_documents
+from backend.storage import load_document, delete_document
 from typing import Literal
 
-from embeddings import MODEL_NAME
-from semantic_retrieval import add_embeddings, search_semantic
-from storage import save_chunk_embeddings
+from backend.embeddings import MODEL_NAME
+from backend.semantic_retrieval import add_embeddings, search_semantic
+from backend.storage import save_chunk_embeddings
 
 
 from pydantic import Field, ValidationError
-from answering import AnsweringError, generate_answer
+from backend.answering import AnsweringError, generate_answer
 
 
 class SearchRequest(BaseModel):

@@ -2,7 +2,7 @@
 
 import pytest
 
-import storage
+from backend import storage
 
 
 @pytest.fixture(autouse=True)

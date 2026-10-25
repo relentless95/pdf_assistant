@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-import answering
+from backend import answering
 
 
 @pytest.fixture

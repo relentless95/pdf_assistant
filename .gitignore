@@ -8,3 +8,10 @@ __pycache__/
 /tmp/
 /data/
 /AGENTS.md
+/frontend.zip
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/dist/
+*.tsbuildinfo
+.pytest_cache/

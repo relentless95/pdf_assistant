@@ -9,7 +9,7 @@ from pathlib import Path
 
 import json
 
-DATABASE_PATH = Path(__file__).parent / "data" / "documents.db"
+DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "documents.db"
 
 
 def get_connection() -> sqlite3.Connection:
