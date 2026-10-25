@@ -186,3 +186,56 @@ def remove_document(document_id: str):
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+
+
+@app.post("/documents/{document_id}/ask")
+def ask_document(document_id: str, body: AskRequest):
+    """Retrieve PDF evidence and generate an answer with sources."""
+    document = load_document(document_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    question = body.question.strip()
+
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail="Question must not be empty."
+        )
+
+    chunks = document["chunks"]
+
+    needs_embeddings = any(
+        chunk.get("embedding") is None
+        or chunk.get("embedding_model") != MODEL_NAME
+        for chunk in chunks
+    )
+
+    if needs_embeddings:
+        add_embeddings(chunks)
+        save_chunk_embeddings(chunks)
+
+    passages = search_semantic(chunks, question, top_k=3)
+
+    try:
+        generated = generate_answer(question, passages)
+    except ValidationError:
+        raise HTTPException(
+            status_code=503,
+            detail="Answer-provider configuration is missing or invalid."
+        )
+    except AnsweringError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error)
+        )
+
+    return {
+        "document_id": document_id,
+        "question": question,
+        **generated
+    }
