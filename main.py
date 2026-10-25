@@ -21,11 +21,19 @@ from semantic_retrieval import add_embeddings, search_semantic
 from storage import save_chunk_embeddings
 
 
+from pydantic import Field, ValidationError
+from answering import AnsweringError, generate_answer
+
+
 class SearchRequest(BaseModel):
     """Expected search JSON; the endpoint separately rejects blank questions."""
 
     question: str
     method: Literal["tfidf", "semantic"] = "tfidf"
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
 
 
 app = FastAPI(title="PDF assistant")
