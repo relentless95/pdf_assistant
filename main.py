@@ -14,18 +14,23 @@ from chunking import chunk_text
 from storage import save_document
 from storage import list_documents
 from storage import load_document, delete_document
+from typing import Literal
 
+from embeddings import MODEL_NAME
+from semantic_retrieval import add_embeddings, search_semantic
+from storage import save_chunk_embeddings
 
 
 class SearchRequest(BaseModel):
     """Expected search JSON; the endpoint separately rejects blank questions."""
+
     question: str
+    method: Literal["tfidf", "semantic"] = "tfidf"
 
 
 app = FastAPI(title="PDF assistant")
 
 # Storage functions read and write SQLite; no global document cache is needed.
-
 
 
 @app.get("/health")
@@ -63,8 +68,6 @@ async def upload_file(file: UploadFile = File(...)):
     # Use an independent ID so uploads with identical filenames stay separate.
     document_id = str(uuid4())
 
-
-
     # Build chunks locally, then save document, pages, and chunks together.
     chunks = []
 
@@ -82,14 +85,13 @@ async def upload_file(file: UploadFile = File(...)):
                 }
             )
 
-
     # Commit the processed data before reporting a successful upload.
     save_document(
-    document_id=document_id,
-    filename=file.filename or "unnamed.pdf",
-    pages=pages,
-    chunks=chunks
-)
+        document_id=document_id,
+        filename=file.filename or "unnamed.pdf",
+        pages=pages,
+        chunks=chunks,
+    )
 
     return {
         "filename": file.filename,
@@ -112,7 +114,7 @@ def get_document(document_id: str):
     document_id comes from the URL path. This retrieves extracted data without
     reopening the PDF; stored chunks are currently omitted from the response.
     """
-    
+
     document = load_document(document_id)
     # load_document returns a dictionary built from database rows, or None.
 
@@ -126,22 +128,42 @@ def get_document(document_id: str):
     }
 
 
-
 @app.post("/documents/{document_id}/search")
 def search_document(document_id: str, body: SearchRequest):
-    """Load saved chunks and return up to three ranked matches for a question."""
+    """Search saved chunks using TF-IDF or semantic similarity."""
     document = load_document(document_id)
 
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
     question = body.question.strip()
+
     if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    results = search_chunks(document["chunks"], question)
+    chunks = document["chunks"]
 
-    return {"document_id": document_id, "question": question, "results": results}
+    if body.method == "semantic":
+        needs_embeddings = any(
+            chunk.get("embedding") is None or chunk.get("embedding_model") != MODEL_NAME
+            for chunk in chunks
+        )
+
+        if needs_embeddings:
+            add_embeddings(chunks)
+            save_chunk_embeddings(chunks)
+
+        results = search_semantic(chunks, question)
+    else:
+        results = search_chunks(chunks, question)
+
+    return {
+        "document_id": document_id,
+        "question": question,
+        "method": body.method,
+        "results": results,
+    }
+
 
 @app.get("/documents/")
 def get_all_documents():

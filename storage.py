@@ -7,6 +7,8 @@ Original PDF bytes are not stored. Each operation closes its own connection.
 import sqlite3
 from pathlib import Path
 
+import json
+
 DATABASE_PATH = Path(__file__).parent / "data" / "documents.db"
 
 
@@ -60,11 +62,23 @@ def initialize_database() -> None:
                 );
                 """)
 
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(chunks)")
+            }
+
+            if "embedding" not in columns:
+                connection.execute("ALTER TABLE chunks ADD COLUMN embedding TEXT")
+
+            if "embedding_model" not in columns:
+                connection.execute("ALTER TABLE chunks ADD COLUMN embedding_model TEXT")
+
     finally:
         connection.close()
 
 
-def save_document(document_id: str, filename: str, pages: list[dict], chunks: list[dict]) -> None:
+def save_document(
+    document_id: str, filename: str, pages: list[dict], chunks: list[dict]
+) -> None:
     """Insert document, pages, and chunks atomically; roll back if an insert fails."""
     connection = get_connection()
 
@@ -84,17 +98,33 @@ def save_document(document_id: str, filename: str, pages: list[dict], chunks: li
 
             # Insert the chunks
             connection.executemany(
-                "INSERT INTO chunks (id, document_id, page_number, content) VALUES (?, ?, ?, ?)",
+                """
+                INSERT INTO chunks (
+                    id, document_id, page_number, content,
+                    embedding, embedding_model
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
                 [
-                    (chunk["chunk_id"], document_id, chunk["page_number"], chunk["content"])
+                    (
+                        chunk["chunk_id"],
+                        document_id,
+                        chunk["page_number"],
+                        chunk["content"],
+                        (
+                            json.dumps(chunk["embedding"])
+                            if chunk.get("embedding") is not None
+                            else None
+                        ),
+                        chunk.get("embedding_model"),
+                    )
                     for chunk in chunks
                 ],
             )
 
-
-
     finally:
         connection.close()
+
 
 def list_documents() -> list[dict]:
     """Return the ID and filename of every saved document."""
@@ -105,13 +135,7 @@ def list_documents() -> list[dict]:
             "SELECT id, filename FROM documents ORDER BY id"
         ).fetchall()
 
-        return [
-            {
-                "document_id": row["id"],
-                "filename": row["filename"]
-            }
-            for row in rows
-        ]
+        return [{"document_id": row["id"], "filename": row["filename"]} for row in rows]
     finally:
         connection.close()
 
@@ -122,8 +146,7 @@ def load_document(document_id: str) -> dict | None:
 
     try:
         document = connection.execute(
-            "SELECT id, filename FROM documents WHERE id = ?",
-            (document_id,)
+            "SELECT id, filename FROM documents WHERE id = ?", (document_id,)
         ).fetchone()
 
         if document is None:
@@ -136,25 +159,36 @@ def load_document(document_id: str) -> dict | None:
             WHERE document_id = ?
             ORDER BY page_number
             """,
-            (document_id,)
+            (document_id,),
         ).fetchall()
 
         chunks = connection.execute(
             """
-            SELECT id AS chunk_id, document_id, page_number, content
+            SELECT id AS chunk_id, document_id, page_number, content,
+                embedding, embedding_model
             FROM chunks
             WHERE document_id = ?
             ORDER BY page_number, rowid
             """,
-            (document_id,)
+            (document_id,),
         ).fetchall()
+
+        chunk_data = []
+
+        for row in chunks:
+            chunk = dict(row)
+
+            if chunk["embedding"] is not None:
+                chunk["embedding"] = json.loads(chunk["embedding"])
+
+            chunk_data.append(chunk)
 
         # Convert named SQLite rows into ordinary dictionaries for the API.
         return {
             "document_id": document["id"],
             "filename": document["filename"],
             "pages": [dict(page) for page in pages],
-            "chunks": [dict(chunk) for chunk in chunks]
+            "chunks": chunk_data
         }
     finally:
         connection.close()
@@ -167,13 +201,37 @@ def delete_document(document_id: str) -> bool:
     try:
         with connection:
             cursor = connection.execute(
-                "DELETE FROM documents WHERE id = ?",
-                (document_id,)
+                "DELETE FROM documents WHERE id = ?", (document_id,)
             )
 
         return cursor.rowcount > 0
     finally:
         connection.close()
+
+def save_chunk_embeddings(chunks: list[dict]) -> None:
+    """Save computed vectors for chunks already in the database."""
+    connection = get_connection()
+
+    try:
+        with connection:
+            connection.executemany(
+                """
+                UPDATE chunks
+                SET embedding = ?, embedding_model = ?
+                WHERE id = ?
+                """,
+                [
+                    (
+                        json.dumps(chunk["embedding"]),
+                        chunk["embedding_model"],
+                        chunk["chunk_id"]
+                    )
+                    for chunk in chunks
+                ]
+            )
+    finally:
+        connection.close()
+
 
 if __name__ == "__main__":
     initialize_database()
